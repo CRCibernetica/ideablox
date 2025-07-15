@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coding Blocks for Kids</title>
+    <title>Coding Blocks for Kids with BLE</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
@@ -52,12 +52,17 @@
             0%, 100% { background-color: #f3f4f6; }
             50% { background-color: #fefce8; }
         }
+        #ble-status {
+            transition: color 0.3s ease;
+        }
     </style>
 </head>
 <body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
 
     <div id="app-container" class="w-full max-w-4xl mx-auto">
-        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Build Your Code!</h1>
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-2">Build Your Code!</h1>
+        <p id="ble-status" class="text-center text-red-500 font-semibold mb-4">BLE Disconnected</p>
+
 
         <!-- Toolbox with available blocks -->
         <div class="mb-8 p-4 bg-white rounded-xl shadow-md">
@@ -96,6 +101,9 @@
 
         <!-- Control buttons -->
         <div class="flex justify-center gap-4">
+             <button id="ble-btn" class="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-transform transform hover:scale-105">
+                <i class="fas fa-bluetooth-b mr-2"></i> Connect
+            </button>
             <button id="run-btn" class="px-8 py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50 transition-transform transform hover:scale-105">
                 <i class="fas fa-play mr-2"></i> Run
             </button>
@@ -112,22 +120,122 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            // --- Element References ---
             const toolbox = document.getElementById('toolbox');
             const workspace = document.getElementById('workspace');
             const workspaceContainer = document.getElementById('workspace-container');
             const workspacePlaceholder = document.getElementById('workspace-placeholder');
             const runBtn = document.getElementById('run-btn');
             const clearBtn = document.getElementById('clear-btn');
+            const bleBtn = document.getElementById('ble-btn');
+            const bleStatus = document.getElementById('ble-status');
             const logContainer = document.getElementById('log-container');
             const logPlaceholder = document.getElementById('log-placeholder');
             const body = document.body;
 
+            // --- State Variables ---
             let draggedItem = null;
-            let synth = null; // To be initialized on first user interaction
+            let synth = null; // For Tone.js
+            let bleDevice = null;
+            let bleServer = null;
+            let bleService = null;
+            let bleTxCharacteristic = null;
+            const textEncoder = new TextEncoder();
+
+            // --- BLE Constants ---
+            // Standard Nordic UART Service (NUS) UUIDs
+            const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+            const UART_TX_CHAR_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // From client to server (our app to device)
+            
+            // --- BLE Logic ---
+            bleBtn.addEventListener('click', async () => {
+                if (!bleDevice || !bleDevice.gatt.connected) {
+                    await connectBle();
+                } else {
+                    await disconnectBle();
+                }
+            });
+
+            async function connectBle() {
+                try {
+                    logAction('Requesting Bluetooth device...');
+                    if (!navigator.bluetooth) {
+                        logAction('Web Bluetooth API is not available in this browser!', 'warn');
+                        return;
+                    }
+                    
+                    bleDevice = await navigator.bluetooth.requestDevice({
+                        filters: [{ services: [UART_SERVICE_UUID] }],
+                        optionalServices: [UART_SERVICE_UUID]
+                    });
+
+                    logAction(`Connecting to ${bleDevice.name}...`);
+                    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+                    bleServer = await bleDevice.gatt.connect();
+                    
+                    logAction('Getting UART Service...');
+                    bleService = await bleServer.getPrimaryService(UART_SERVICE_UUID);
+                    
+                    logAction('Getting TX Characteristic...');
+                    bleTxCharacteristic = await bleService.getCharacteristic(UART_TX_CHAR_UUID);
+
+                    logAction(`Connected to ${bleDevice.name}!`, 'success');
+                    updateBleUi(true);
+
+                } catch (error) {
+                    logAction(`Error connecting to BLE device: ${error.message}`, 'warn');
+                    if (bleDevice) {
+                        bleDevice.gatt.disconnect();
+                    }
+                }
+            }
+
+            async function disconnectBle() {
+                if (bleDevice && bleDevice.gatt.connected) {
+                    logAction(`Disconnecting from ${bleDevice.name}...`);
+                    await bleDevice.gatt.disconnect();
+                } else {
+                    logAction('No BLE device connected.', 'warn');
+                }
+            }
+
+            function onDisconnected() {
+                logAction(`Device ${bleDevice.name} disconnected.`, 'warn');
+                updateBleUi(false);
+                bleDevice = null;
+                bleTxCharacteristic = null;
+            }
+
+            function updateBleUi(isConnected) {
+                if (isConnected) {
+                    bleStatus.textContent = `Connected to: ${bleDevice.name}`;
+                    bleStatus.classList.remove('text-red-500');
+                    bleStatus.classList.add('text-green-600');
+                    bleBtn.innerHTML = '<i class="fas fa-unlink mr-2"></i> Disconnect';
+                } else {
+                    bleStatus.textContent = 'BLE Disconnected';
+                    bleStatus.classList.add('text-red-500');
+                    bleStatus.classList.remove('text-green-600');
+                    bleBtn.innerHTML = '<i class="fas fa-bluetooth-b mr-2"></i> Connect';
+                }
+            }
+            
+            async function sendBleData(data) {
+                if (bleTxCharacteristic) {
+                    try {
+                        // Add a newline character, as many UART implementations expect it
+                        const dataToSend = textEncoder.encode(data + '\n');
+                        await bleTxCharacteristic.writeValue(dataToSend);
+                        logAction(`Sent via BLE: ${data}`, 'info');
+                    } catch (error) {
+                        logAction(`BLE write error: ${error.message}`, 'warn');
+                    }
+                } else {
+                    logAction('Cannot send data: BLE characteristic not available.', 'warn');
+                }
+            }
 
             // --- Drag and Drop Logic ---
-
-            // Using 'pointerdown' and 'pointerup' to handle both mouse and touch
             toolbox.addEventListener('pointerdown', (e) => {
                 const target = e.target.closest('.block');
                 if (target) {
@@ -139,18 +247,15 @@
                 const target = e.target.closest('.block');
                 if (target && target.parentElement.id === 'toolbox') {
                     draggedItem = target;
-                    setTimeout(() => {
-                        // You can add a class to style the original block while dragging
-                    }, 0);
                 }
             });
 
-            document.addEventListener('dragend', (e) => {
+            document.addEventListener('dragend', () => {
                 draggedItem = null;
             });
 
             workspaceContainer.addEventListener('dragover', (e) => {
-                e.preventDefault(); // Necessary to allow dropping
+                e.preventDefault();
                 workspaceContainer.classList.add('drag-over');
             });
 
@@ -166,15 +271,13 @@
                         workspacePlaceholder.style.display = 'none';
                     }
                     const newBlock = draggedItem.cloneNode(true);
-                    newBlock.setAttribute('draggable', 'false'); // Cloned blocks in workspace are not draggable
-                    newBlock.classList.add('workspace-block');
+                    newBlock.setAttribute('draggable', 'false');
                     workspace.appendChild(newBlock);
                     logAction(`Block added: ${newBlock.dataset.action}`);
                 }
             });
 
             // --- Control Logic ---
-
             clearBtn.addEventListener('click', () => {
                 workspace.innerHTML = '';
                 if (workspacePlaceholder) {
@@ -186,7 +289,6 @@
             });
 
             runBtn.addEventListener('click', async () => {
-                // Initialize Tone.js on a user gesture
                 if (!synth) {
                     await Tone.start();
                     synth = new Tone.Synth().toDestination();
@@ -201,6 +303,7 @@
                 
                 runBtn.disabled = true;
                 clearBtn.disabled = true;
+                bleBtn.disabled = true;
                 clearLog();
                 logAction('Running sequence...');
 
@@ -208,17 +311,20 @@
                     const block = blocks[i];
                     const action = block.dataset.action;
                     
-                    // Highlight the current block
                     block.classList.add('executing');
                     logAction(`Executing: ${action}`);
+                    
+                    // Send command over BLE if connected
+                    if (bleDevice && bleDevice.gatt.connected) {
+                        await sendBleData(action);
+                    }
 
-                    // Perform the action
+                    // Perform the local action
                     switch (action) {
                         case 'forward':
                         case 'left':
                         case 'right':
-                        case 'stop': // NOTE: 'stop' is now treated like other commands
-                            // For now, just a delay
+                        case 'stop':
                             await new Promise(resolve => setTimeout(resolve, 700));
                             break;
                         case 'flash':
@@ -234,20 +340,20 @@
                             break;
                     }
                     
-                    // Remove highlight from the completed block
                     block.classList.remove('executing');
                 }
                 
                 logAction('Sequence complete!', 'success');
                 runBtn.disabled = false;
                 clearBtn.disabled = false;
+                bleBtn.disabled = false;
             });
 
             // --- Logging Utility ---
             function logAction(message, type = 'info') {
                 if (logPlaceholder.style.display !== 'none') {
                     logPlaceholder.style.display = 'none';
-                    logContainer.innerHTML = ''; // Clear the placeholder text
+                    logContainer.innerHTML = '';
                 }
                 const p = document.createElement('p');
                 let prefix = 'INFO:';
@@ -261,7 +367,7 @@
                 }
                 p.innerHTML = `<span class="${color} font-bold">${prefix}</span> ${message}`;
                 logContainer.appendChild(p);
-                logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll to bottom
+                logContainer.scrollTop = logContainer.scrollHeight;
             }
 
             function clearLog() {
