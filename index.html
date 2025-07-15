@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coding Blocks for Kids</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: none; /* Disable browser handling of touch events like panning */
+        }
+        .toolbox, .workspace {
+            min-height: 120px;
+            transition: background-color 0.3s ease;
+        }
+        .block {
+            width: 80px;
+            height: 80px;
+            cursor: grab;
+            user-select: none;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .block:active {
+            cursor: grabbing;
+            transform: scale(1.1);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        .workspace .block {
+            cursor: default;
+        }
+        .workspace-container {
+            border-style: dashed;
+        }
+        .drag-over {
+            background-color: #e0f2fe; /* light blue */
+        }
+        .executing {
+            animation: pulse 0.7s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { transform: scale(1.05); box-shadow: 0 0 10px 10px rgba(59, 130, 246, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .light-flash {
+            animation: flash 0.5s ease-out;
+        }
+        @keyframes flash {
+            0%, 100% { background-color: #f3f4f6; }
+            50% { background-color: #fefce8; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div id="app-container" class="w-full max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Build Your Code!</h1>
+
+        <!-- Toolbox with available blocks -->
+        <div class="mb-8 p-4 bg-white rounded-xl shadow-md">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">Toolbox</h2>
+            <div id="toolbox" class="toolbox flex flex-wrap justify-center items-center gap-4 p-4 bg-gray-50 rounded-lg">
+                <div class="block flex justify-center items-center bg-blue-500 text-white rounded-lg shadow-sm" data-action="forward" draggable="true">
+                    <i class="fas fa-arrow-up fa-2x"></i>
+                </div>
+                <div class="block flex justify-center items-center bg-green-500 text-white rounded-lg shadow-sm" data-action="left" draggable="true">
+                    <i class="fas fa-arrow-left fa-2x"></i>
+                </div>
+                <div class="block flex justify-center items-center bg-green-500 text-white rounded-lg shadow-sm" data-action="right" draggable="true">
+                    <i class="fas fa-arrow-right fa-2x"></i>
+                </div>
+                <div class="block flex justify-center items-center bg-red-500 text-white rounded-lg shadow-sm" data-action="stop" draggable="true">
+                    <i class="fas fa-stop fa-2x"></i>
+                </div>
+                <div class="block flex justify-center items-center bg-yellow-400 text-white rounded-lg shadow-sm" data-action="flash" draggable="true">
+                    <i class="fas fa-lightbulb fa-2x"></i>
+                </div>
+                <div class="block flex justify-center items-center bg-purple-500 text-white rounded-lg shadow-sm" data-action="beep" draggable="true">
+                    <i class="fas fa-volume-up fa-2x"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Workspace where blocks are dropped -->
+        <div class="mb-6 p-4 bg-white rounded-xl shadow-md">
+             <h2 class="text-xl font-semibold text-gray-700 mb-4">Your Code Sequence</h2>
+            <div id="workspace-container" class="workspace-container border-2 border-gray-300 rounded-lg p-4">
+                <div id="workspace" class="workspace flex flex-wrap items-center gap-4">
+                    <p id="workspace-placeholder" class="text-gray-400">Drag and drop blocks here to start!</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Control buttons -->
+        <div class="flex justify-center gap-4">
+            <button id="run-btn" class="px-8 py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50 transition-transform transform hover:scale-105">
+                <i class="fas fa-play mr-2"></i> Run
+            </button>
+            <button id="clear-btn" class="px-8 py-3 bg-gray-600 text-white font-bold rounded-lg shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-transform transform hover:scale-105">
+                <i class="fas fa-trash mr-2"></i> Clear
+            </button>
+        </div>
+        
+        <!-- Message Log -->
+        <div id="log-container" class="mt-8 p-4 bg-gray-800 text-white rounded-xl shadow-inner h-32 overflow-y-auto font-mono text-sm">
+            <p id="log-placeholder">Execution log will appear here...</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const toolbox = document.getElementById('toolbox');
+            const workspace = document.getElementById('workspace');
+            const workspaceContainer = document.getElementById('workspace-container');
+            const workspacePlaceholder = document.getElementById('workspace-placeholder');
+            const runBtn = document.getElementById('run-btn');
+            const clearBtn = document.getElementById('clear-btn');
+            const logContainer = document.getElementById('log-container');
+            const logPlaceholder = document.getElementById('log-placeholder');
+            const body = document.body;
+
+            let draggedItem = null;
+            let synth = null; // To be initialized on first user interaction
+
+            // --- Drag and Drop Logic ---
+
+            // Using 'pointerdown' and 'pointerup' to handle both mouse and touch
+            toolbox.addEventListener('pointerdown', (e) => {
+                const target = e.target.closest('.block');
+                if (target) {
+                    target.setAttribute('draggable', 'true');
+                }
+            });
+
+            document.addEventListener('dragstart', (e) => {
+                const target = e.target.closest('.block');
+                if (target && target.parentElement.id === 'toolbox') {
+                    draggedItem = target;
+                    setTimeout(() => {
+                        // You can add a class to style the original block while dragging
+                    }, 0);
+                }
+            });
+
+            document.addEventListener('dragend', (e) => {
+                draggedItem = null;
+            });
+
+            workspaceContainer.addEventListener('dragover', (e) => {
+                e.preventDefault(); // Necessary to allow dropping
+                workspaceContainer.classList.add('drag-over');
+            });
+
+            workspaceContainer.addEventListener('dragleave', () => {
+                workspaceContainer.classList.remove('drag-over');
+            });
+
+            workspaceContainer.addEventListener('drop', (e) => {
+                e.preventDefault();
+                workspaceContainer.classList.remove('drag-over');
+                if (draggedItem) {
+                    if (workspacePlaceholder) {
+                        workspacePlaceholder.style.display = 'none';
+                    }
+                    const newBlock = draggedItem.cloneNode(true);
+                    newBlock.setAttribute('draggable', 'false'); // Cloned blocks in workspace are not draggable
+                    newBlock.classList.add('workspace-block');
+                    workspace.appendChild(newBlock);
+                    logAction(`Block added: ${newBlock.dataset.action}`);
+                }
+            });
+
+            // --- Control Logic ---
+
+            clearBtn.addEventListener('click', () => {
+                workspace.innerHTML = '';
+                if (workspacePlaceholder) {
+                    workspace.appendChild(workspacePlaceholder);
+                    workspacePlaceholder.style.display = 'block';
+                }
+                clearLog();
+                logAction('Workspace cleared.');
+            });
+
+            runBtn.addEventListener('click', async () => {
+                // Initialize Tone.js on a user gesture
+                if (!synth) {
+                    await Tone.start();
+                    synth = new Tone.Synth().toDestination();
+                    console.log('Audio context started.');
+                }
+                
+                const blocks = workspace.querySelectorAll('.block');
+                if (blocks.length === 0) {
+                    logAction('Nothing to run. Add some blocks first!', 'warn');
+                    return;
+                }
+                
+                runBtn.disabled = true;
+                clearBtn.disabled = true;
+                clearLog();
+                logAction('Running sequence...');
+
+                for (let i = 0; i < blocks.length; i++) {
+                    const block = blocks[i];
+                    const action = block.dataset.action;
+                    
+                    // Highlight the current block
+                    block.classList.add('executing');
+                    logAction(`Executing: ${action}`);
+
+                    // Perform the action
+                    switch (action) {
+                        case 'forward':
+                        case 'left':
+                        case 'right':
+                            // For now, just a delay
+                            await new Promise(resolve => setTimeout(resolve, 700));
+                            break;
+                        case 'stop':
+                            // Stop execution
+                            logAction('Execution stopped by block.', 'warn');
+                            block.classList.remove('executing');
+                            runBtn.disabled = false;
+                            clearBtn.disabled = false;
+                            return; // Exit the loop and function
+                        case 'flash':
+                            body.classList.add('light-flash');
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            body.classList.remove('light-flash');
+                            break;
+                        case 'beep':
+                            if (synth) {
+                                synth.triggerAttackRelease("C4", "8n");
+                            }
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            break;
+                    }
+                    
+                    // Remove highlight from the completed block
+                    block.classList.remove('executing');
+                }
+                
+                logAction('Sequence complete!', 'success');
+                runBtn.disabled = false;
+                clearBtn.disabled = false;
+            });
+
+            // --- Logging Utility ---
+            function logAction(message, type = 'info') {
+                if (logPlaceholder.style.display !== 'none') {
+                    logPlaceholder.style.display = 'none';
+                    logContainer.innerHTML = ''; // Clear the placeholder text
+                }
+                const p = document.createElement('p');
+                let prefix = 'INFO:';
+                let color = 'text-blue-300';
+                if (type === 'success') {
+                    prefix = 'SUCCESS:';
+                    color = 'text-green-400';
+                } else if (type === 'warn') {
+                    prefix = 'WARN:';
+                    color = 'text-yellow-400';
+                }
+                p.innerHTML = `<span class="${color} font-bold">${prefix}</span> ${message}`;
+                logContainer.appendChild(p);
+                logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll to bottom
+            }
+
+            function clearLog() {
+                logContainer.innerHTML = '';
+                logContainer.appendChild(logPlaceholder);
+                logPlaceholder.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>
