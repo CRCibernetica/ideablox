@@ -225,7 +225,7 @@
                     try {
                         // Add a newline character, as many UART implementations expect it
                         const dataToSend = textEncoder.encode(data + '\n');
-                        await bleTxCharacteristic.writeValue(dataToSend);
+                        await bleTxCharacteristic.writeValueWithoutResponse(dataToSend);
                         logAction(`Sent via BLE: ${data}`, 'info');
                     } catch (error) {
                         logAction(`BLE write error: ${error.message}`, 'warn');
@@ -289,10 +289,10 @@
             });
 
             runBtn.addEventListener('click', async () => {
+                // Initialize audio context on user gesture
                 if (!synth) {
                     await Tone.start();
                     synth = new Tone.Synth().toDestination();
-                    console.log('Audio context started.');
                 }
                 
                 const blocks = workspace.querySelectorAll('.block');
@@ -305,19 +305,36 @@
                 clearBtn.disabled = true;
                 bleBtn.disabled = true;
                 clearLog();
-                logAction('Running sequence...');
+                logAction('Starting sequence...');
 
+                // --- NEW: Create a single command string ---
+                const commandMap = {
+                    forward: 'f',
+                    left: 'l',
+                    right: 'r',
+                    stop: 's',
+                    flash: 'a', // 'f' is for forward
+                    beep: 'b'
+                };
+                const commandString = Array.from(blocks)
+                                           .map(block => commandMap[block.dataset.action])
+                                           .join('');
+
+                // --- NEW: Send the entire string at once ---
+                if (bleDevice && bleDevice.gatt.connected && commandString) {
+                    logAction(`Generated command string: ${commandString}`);
+                    await sendBleData(commandString);
+                } else if (commandString) {
+                    logAction(`Generated command string (not sent): ${commandString}`);
+                }
+
+                // --- Animate the sequence locally for visual feedback ---
+                logAction('Running local animation...');
                 for (let i = 0; i < blocks.length; i++) {
                     const block = blocks[i];
                     const action = block.dataset.action;
                     
                     block.classList.add('executing');
-                    logAction(`Executing: ${action}`);
-                    
-                    // Send command over BLE if connected
-                    if (bleDevice && bleDevice.gatt.connected) {
-                        await sendBleData(action);
-                    }
 
                     // Perform the local action
                     switch (action) {
