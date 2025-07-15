@@ -217,16 +217,10 @@
                         case 'forward':
                         case 'left':
                         case 'right':
+                        case 'stop': // NOTE: 'stop' is now treated like other commands
                             // For now, just a delay
                             await new Promise(resolve => setTimeout(resolve, 700));
                             break;
-                        case 'stop':
-                            // Stop execution
-                            logAction('Execution stopped by block.', 'warn');
-                            block.classList.remove('executing');
-                            runBtn.disabled = false;
-                            clearBtn.disabled = false;
-                            return; // Exit the loop and function
                         case 'flash':
                             body.classList.add('light-flash');
                             await new Promise(resolve => setTimeout(resolve, 500));
