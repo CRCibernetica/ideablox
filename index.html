@@ -64,7 +64,6 @@
         <p id="ble-status" class="text-center text-red-500 font-semibold mb-4">BLE Disconnected</p>
 
 
-        <!-- Toolbox with available blocks -->
         <div class="mb-8 p-4 bg-white rounded-xl shadow-md">
             <h2 class="text-xl font-semibold text-gray-700 mb-4">Toolbox</h2>
             <div id="toolbox" class="toolbox flex flex-wrap justify-center items-center gap-4 p-4 bg-gray-50 rounded-lg">
@@ -89,7 +88,6 @@
             </div>
         </div>
 
-        <!-- Workspace where blocks are dropped -->
         <div class="mb-6 p-4 bg-white rounded-xl shadow-md">
              <h2 class="text-xl font-semibold text-gray-700 mb-4">Your Code Sequence</h2>
             <div id="workspace-container" class="workspace-container border-2 border-gray-300 rounded-lg p-4">
@@ -99,7 +97,6 @@
             </div>
         </div>
 
-        <!-- Control buttons -->
         <div class="flex justify-center gap-4">
              <button id="ble-btn" class="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-transform transform hover:scale-105">
                 <i class="fas fa-bluetooth-b mr-2"></i> Connect
@@ -112,7 +109,6 @@
             </button>
         </div>
         
-        <!-- Message Log -->
         <div id="log-container" class="mt-8 p-4 bg-gray-800 text-white rounded-xl shadow-inner h-32 overflow-y-auto font-mono text-sm">
             <p id="log-placeholder">Execution log will appear here...</p>
         </div>
@@ -140,12 +136,15 @@
             let bleServer = null;
             let bleService = null;
             let bleTxCharacteristic = null;
+            let bleRxCharacteristic = null; // <-- NEW
             const textEncoder = new TextEncoder();
+            const textDecoder = new TextDecoder('utf-8'); // <-- NEW
 
             // --- BLE Constants ---
             // Standard Nordic UART Service (NUS) UUIDs
             const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
             const UART_TX_CHAR_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // From client to server (our app to device)
+            const UART_RX_CHAR_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // From server to client (device to our app) <-- NEW
             
             // --- BLE Logic ---
             bleBtn.addEventListener('click', async () => {
@@ -178,6 +177,15 @@
                     
                     logAction('Getting TX Characteristic...');
                     bleTxCharacteristic = await bleService.getCharacteristic(UART_TX_CHAR_UUID);
+                    
+                    // --- NEW: Subscribe to RX Characteristic ---
+                    logAction('Getting RX Characteristic...');
+                    bleRxCharacteristic = await bleService.getCharacteristic(UART_RX_CHAR_UUID);
+
+                    logAction('Subscribing to RX notifications...');
+                    await bleRxCharacteristic.startNotifications();
+                    bleRxCharacteristic.addEventListener('characteristicvaluechanged', handleRxNotification);
+                    // --- End of new section ---
 
                     logAction(`Connected to ${bleDevice.name}!`, 'success');
                     updateBleUi(true);
@@ -204,6 +212,21 @@
                 updateBleUi(false);
                 bleDevice = null;
                 bleTxCharacteristic = null;
+                bleRxCharacteristic = null; // <-- NEW
+            }
+
+            // --- NEW: Handle incoming BLE data ---
+            function handleRxNotification(event) {
+                try {
+                    const value = event.target.value;
+                    // Decode the ArrayBuffer (value.buffer) into a string
+                    const receivedString = textDecoder.decode(value).trim();
+                    if (receivedString) {
+                        logAction(`Received via BLE: ${receivedString}`, 'info');
+                    }
+                } catch (error) {
+                    logAction(`Error decoding RX data: ${error.message}`, 'warn');
+                }
             }
 
             function updateBleUi(isConnected) {
